@@ -1,0 +1,49 @@
+name: Validate history stamp
+
+on:
+  push:
+    branches: [ci/validate-history-stamp]
+
+permissions:
+  contents: read
+
+env:
+  CI: '1'
+  NX_DAEMON: 'false'
+  NX_NO_CLOUD: 'true'
+
+jobs:
+  validate:
+    name: ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [fix, baseline]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: fix/history-stateless-entries
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Restore upstream history source (baseline)
+        if: matrix.variant == 'baseline'
+        run: |
+          git fetch --depth 1 https://github.com/TanStack/router.git main
+          git checkout FETCH_HEAD -- packages/history/src/index.ts
+          git diff --stat HEAD
+      - uses: TanStack/config/.github/setup@e4b48f16568324f76f467aa4c2aac2f05db632c3 # main
+      - name: ESLint (history)
+        if: matrix.variant == 'fix'
+        run: pnpm nx run @tanstack/history:test:eslint --outputStyle=stream --skipRemoteCache
+      - name: Types (history)
+        if: matrix.variant == 'fix'
+        run: pnpm nx run @tanstack/history:test:types --outputStyle=stream --skipRemoteCache
+      - name: Unit (history)
+        continue-on-error: ${{ matrix.variant == 'baseline' }}
+        run: pnpm nx run @tanstack/history:test:unit --outputStyle=stream --skipRemoteCache
+      - name: Install Playwright
+        run: pnpm exec playwright install --with-deps chromium
+      - name: E2E (history-blocking)
+        continue-on-error: ${{ matrix.variant == 'baseline' }}
+        run: pnpm nx run tanstack-router-e2e-react-basic-file-based:test:e2e --outputStyle=stream --skipRemoteCache -- tests/history-blocking.spec.ts
